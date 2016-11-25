@@ -1,12 +1,12 @@
-### salt '*' pillar.get doesnt consider ext_pillar without refresh_pillar but pillar.items does
+# salt '*' pillar.get doesnt consider ext_pillar without refresh_pillar but pillar.items does
 
 ## Setup
-Use this:
+Use this for testing:
 https://github.com/luitzifa/salt-pillar.get-inconsistency
 
 ## Description of Issue/Question
 
-I face very confusing and inconsitent results when i use **pillar.get** and **pillar.items** in different modes with external pillar:
+I face very confusing and inconsitent results when i use **pillar.get** and **pillar.items** in different modes together with an external pillar:
 - salt 'host' (master/minion push)
 - salt-call (master/minion pull)
 
@@ -21,7 +21,7 @@ systemctl start salt-master
 systemctl start salt-minion
 ```
 
-First, i need to sync my ext_pillar
+First, sync my ext_pillar
 ```
 root@testhost[dev]:~ > salt-run saltutil.sync_all
 engines:
@@ -39,22 +39,24 @@ states:
 wheel:
 ```
 
-My masterlog shows the following pillar.get doesn't even try to render pillars, but a event is sent to minion with zero return
+My masterlog shows the following pillar.get doesn't even try to render pillars. An event is sent to minion with zero return
 ```
 root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
+```
+
+pillar.items works like expected
+```
 root@testhost[dev]:~ > salt '*' pillar.items|grep -A1 foo3
     foo3:
         this is from my ext_pillar
 ```
 
-But after successfull pillar.items still no success with pillar.get
+I thought about caching but pillar.items doesn't seem to cache
 ```
 root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
 ```
-Seems not to be an caching issue? pillar.items result would be cached, wouldn't it?
-
 
 Now we try a salt-call...
 ```
@@ -63,7 +65,8 @@ local:
     this is from my ext_pillar
 ```
 
-Well, salt-call succeed but how, where is the difference? It doesn't work, hello, cache-che-che-che-e-e-e?
+Well, salt-call succeed but how, where is the difference? 
+Still no success on the other side
 ```
 root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
@@ -78,24 +81,30 @@ root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
     this is from my ext_pillar
 ```
-Woohoo, finally! Cached? I'm very confused.
+Woohoo, finally! Is it cached now? I'm very confused. What's the difference now?
 
 The main questions are:
 - Why does pillar.get not just work like pillar.items?
 - Why **salt '*' pillar.get** and **salt-call pillar.get** provide different results?
 
 
-### only in masterless mode it's possible to call pillars within pillars and only in highstate or with pillar.items
+### call pillars within pillars by jinja is working but only in masterless setup and only in highstate or with pillar.items
+
 ## Setup
-Use this:
-https://github.com/luitzifa/salt-pillar.get-inconsistency
+Take a look at my files: https://github.com/luitzifa/salt-pillar.get-inconsistency
 
 ## Description of Issue/Question
-There is an issue where people ask for calling pillars within pillar, i cannot find right now. But i had in mind so i never tried again. Then one of my colleagues pushed a change where he did it, i was wondering and he showed me that it's working. We mostly test masterless but production is master/minion. Code were deployed to prod and ... desaster.
+There is a featurerequest where people want to call pillars within pillars by jinja. I cannot find this issue right now.
 
-**Why does masterless differ to master/minion in this case?**
+I tried it once, didn't work, found the issue and never questioned again. Then one of my colleagues pushed a change where he just did it and it worked at first glance. It failed in qa. We mostly test masterless but qa and prod are master/minion.
+
+It would be great if
+- you can make it possible to call pillars within pillar by jinja in a master/minion setup
+- pillar.get provides same results as pillar.items
 
 ## Steps to Reproduce Issue
+
+Following i want to show that it's working in a masterless setup but only with pillar.items (and in highstate)
 
 Clean up
 ```
@@ -128,7 +137,7 @@ local:
         foo2 should  be deleted by my external pillar
 ```
 
-But pillar.items (highstate too) really includes variable for other pillars, except from the not synced external pillar
+But pillar.items really includes variable for other pillars, except from the not yet synced external pillar
 ```
 root@testhost[dev]:~ > salt-call --local pillar.items
 [CRITICAL] Specified ext_pillar interface my is unavailable
@@ -175,7 +184,7 @@ local:
                 abc
 ```
 
-We can also sync the external pillar and let the magic begin
+We can also sync the external pillar which will delete foo2 and provide foo3/foo4 and let the magic begin
 ```
 root@testhost[dev]:~ > salt-call --local saltutil.sync_all
 [CRITICAL] Specified ext_pillar interface my is unavailable
@@ -211,7 +220,7 @@ local:
 Nope, no magic happend with pillar.get
 
 
-Lets take a look at my beloved pillar.items, it even considers the deletion of foo2 by my ext_pillar, which would be called in foo6:bar4
+Lets take a look at my beloved pillar.items, remember foo6:bar4 is a pillar.get on foo2 which is deleted by my ext_pillar
 ```
 root@testhost[dev]:~ > salt-call --local pillar.items
 local:
@@ -250,9 +259,7 @@ local:
             foo2 should  be deleted by my external pillar
 ```
 
-It would be great if
-- pillar.get provides same results as pillar.items
-- call pillars within pillar works in master/minion setup
+
 
 
 
