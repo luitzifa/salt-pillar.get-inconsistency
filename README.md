@@ -88,7 +88,7 @@ The main questions are:
 - Why **salt '*' pillar.get** and **salt-call pillar.get** provide different results?
 
 
-### call pillars within pillars by jinja is working but only in masterless setup and only in highstate or with pillar.items
+# call pillars within pillars by jinja is working but only in masterless setup and only in highstate or with pillar.items
 
 ## Setup
 Take a look at my files: https://github.com/luitzifa/salt-pillar.get-inconsistency
