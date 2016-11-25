@@ -1,10 +1,27 @@
+### salt '*' pillar.get doesnt consider ext_pillar without refresh_pillar but pillar.items does
+
+## Setup
+Use this:
+https://github.com/luitzifa/salt-pillar.get-inconsistency
+
 ## Description of Issue/Question
-I face very confusing and inconsitent results when i use **pillar.get** and **pillar.items** in different modes with and without external pillar:
+
+I face very confusing and inconsitent results when i use **pillar.get** and **pillar.items** in different modes with external pillar:
 - salt 'host' (master/minion push)
 - salt-call (master/minion pull)
-- salt-call --local (masterless)
 
-### salt '*' pillar.get doesnt consider ext_pillar without refresh_pillar but pillar.items does
+## Steps to Reproduce Issue
+
+Clean up caches
+```
+systemctl stop salt-master
+systemctl stop salt-minion
+rm -rf /var/cache/salt/{master,minion}/*
+systemctl start salt-master
+systemctl start salt-minion
+```
+
+First, i need to sync my ext_pillar
 ```
 root@testhost[dev]:~ > salt-run saltutil.sync_all
 engines:
@@ -20,18 +37,38 @@ returners:
 runners:
 states:
 wheel:
+```
+
+My masterlog shows the following pillar.get doesn't even try to render pillars, but a event is sent to minion with zero return
+```
 root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
 root@testhost[dev]:~ > salt '*' pillar.items|grep -A1 foo3
     foo3:
         this is from my ext_pillar
+```
+
+But still not cached after pillar.items
+```
 root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
+```
+
+Now we try a salt-call
+```
 root@testhost[dev]:~ > salt-call pillar.get foo3
 local:
     this is from my ext_pillar
+```
+
+Well, still not cached...
+```
 root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
+```
+
+My last chance
+```
 root@testhost[dev]:~ > salt '*' saltutil.refresh_pillar
 testhost:
     True
@@ -39,10 +76,38 @@ root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
     this is from my ext_pillar
 ```
+Woohoo, finally! **But why does pillar.get not just work like pillar.items?**
 
-### only in masterless mode it's possible to call pillars within pillars, but only in highstate and with pillar.items
+
+### only in masterless mode it's possible to call pillars within pillars and only in highstate or with pillar.items
+## Setup
+Use this:
+https://github.com/luitzifa/salt-pillar.get-inconsistency
+
+## Description of Issue/Question
+There is an issue where people ask for calling pillars within pillar, i cannot find right now. But i had in mind so i never tried again. Then one of my colleagues pushed a change where he did it, i was wondering and he showed me that it's working. We mostly test masterless but production is master/minion. Code were deployed to prod and ... desaster.
+
+**Why does masterless differ to master/minion in this case?**
+
+## Steps to Reproduce Issue
+
+Clean up
 ```
 root@testhost[dev]:~ > rm -rf /var/cache/salt/{master,minion}/*
+```
+
+foo6 is defined by ./pillar/foo3.sls
+```
+######### ./pillar/foo3.sls #########
+foo6:
+  bar1: {{ salt['pillar.get']('foo1:bar2', 'pillar.get a default pillar') }}
+  bar2: {{ salt['pillar.get']('foo5:bar1', 'pillar.get a jinja-rendered pillar') }}
+  bar3: {{ salt['pillar.get']('foo3', 'pillar.get a external pillar') }}
+  bar4: {{ salt['pillar.get']('foo2', 'foo2 should  be deleted by my external pillar') }}
+```
+
+pillar.get shows default variables
+```
 root@testhost[dev]:~ > salt-call --local pillar.get foo6
 [CRITICAL] Specified ext_pillar interface my is unavailable
 local:
@@ -55,6 +120,10 @@ local:
         pillar.get a external pillar
     bar4:
         foo2 should  be deleted by my external pillar
+```
+
+But pillar.items (highstate too) really includes variable for other pillars, except from the not synced external pillar
+```
 root@testhost[dev]:~ > salt-call --local pillar.items
 [CRITICAL] Specified ext_pillar interface my is unavailable
 [CRITICAL] Specified ext_pillar interface my is unavailable
@@ -98,6 +167,10 @@ local:
                 98765432221
             bar4:
                 abc
+```
+
+We can also sync the external pillar and let the magic begin
+```
 root@testhost[dev]:~ > salt-call --local saltutil.sync_all
 [CRITICAL] Specified ext_pillar interface my is unavailable
 [CRITICAL] Specified ext_pillar interface my is unavailable
@@ -128,6 +201,12 @@ local:
         pillar.get a external pillar
     bar4:
         foo2 should  be deleted by my external pillar
+```
+Nope, no magic happend with pillar.get
+
+
+Lets take a look at my beloved pillar.items, it even considers the deletion of foo2 by my ext_pillar, which would be called in foo6:bar4
+```
 root@testhost[dev]:~ > salt-call --local pillar.items
 local:
     ----------
@@ -163,67 +242,14 @@ local:
             this is from my ext_pillar
         bar4:
             foo2 should  be deleted by my external pillar
-
 ```
 
-## Setup
-Use this:
-https://github.com/luitzifa/salt-pillar.get-inconsistency
+It would be great if
+- pillar.get provides same results as pillar.items
+- call pillars within pillar works in master/minion setup
 
-```
-######### ./pillar/foo1.sls #########
-# -*- coding: utf-8 -*-
-foo1:
-  bar1: srtg'ft€@µ§edg!"$%&/()=?`sg
-  bar2: some nice value
-  bar3: srtgftedgsg
-  bar4: rtgsedrtgsfdgdsrf
 
-foo2:
-  bar1: 12345678
-  bar3: 98765432221
-  bar4: abc
 
-######### ./pillar/foo2.sls #########
-foo5:
-  bar1: {{ salt['grains.get']('os', 'my dist should be printed here') }}
-
-######### ./pillar/foo3.sls #########
-foo6:
-  bar1: {{ salt['pillar.get']('foo1:bar2', 'pillar.get a default pillar') }}
-  bar2: {{ salt['pillar.get']('foo5:bar1', 'pillar.get a jinja-rendered pillar') }}
-  bar3: {{ salt['pillar.get']('foo3', 'pillar.get a external pillar') }}
-  bar4: {{ salt['pillar.get']('foo2', 'foo2 should  be deleted by my external pillar') }}
-
-######### ./pillar/top.sls #########
-base:
-  '*':
-    - foo1
-    - foo2
-    - foo3
-
-######### ./salt/_pillar/my.py #########
-#!py
-def ext_pillar(minion_id, pillar, *args, **kwargs):
-    my_data = { 'foo3': 'this is from my ext_pillar' }
-    pillar.update( { 'foo4': { 'bar1': 'update on reference works too', 'bar2': 'delete key works if you see no foo2' } } )
- 
-    pillar.pop('foo2')
-
-    return my_data
-
-```
-
-## Steps to Reproduce Issue
-Clean up your caches:
-
-```
-systemctl stop salt-master
-systemctl stop salt-minion
-rm -rf /var/cache/salt/{master,minion}/*
-systemctl start salt-master
-systemctl start salt-minion
-```
 
 #### Versions Report
 master/minion on same host. result is the same even if you use different hosts
