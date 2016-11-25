@@ -48,20 +48,22 @@ root@testhost[dev]:~ > salt '*' pillar.items|grep -A1 foo3
         this is from my ext_pillar
 ```
 
-But still not cached after pillar.items
+But after successfull pillar.items still no success with pillar.get
 ```
 root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
 ```
+Seems not to be an caching issue? pillar.items result would be cached, wouldn't it?
 
-Now we try a salt-call
+
+Now we try a salt-call...
 ```
 root@testhost[dev]:~ > salt-call pillar.get foo3
 local:
     this is from my ext_pillar
 ```
 
-Well, still not cached...
+Well, salt-call succeed but how, where is the difference? It doesn't work, hello, cache-che-che-che-e-e-e?
 ```
 root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
@@ -76,7 +78,11 @@ root@testhost[dev]:~ > salt '*' pillar.get foo3
 testhost:
     this is from my ext_pillar
 ```
-Woohoo, finally! **But why does pillar.get not just work like pillar.items?**
+Woohoo, finally! Cached? I'm very confused.
+
+The main questions are:
+- Why does pillar.get not just work like pillar.items?
+- Why **salt '*' pillar.get** and **salt-call pillar.get** provide different results?
 
 
 ### only in masterless mode it's possible to call pillars within pillars and only in highstate or with pillar.items
